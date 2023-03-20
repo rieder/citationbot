@@ -1,32 +1,40 @@
+"""
+Python bot that checks for new publications that cite one or more articles, and
+performs an action if this is the case - currently it will post a message to
+Mastodon, but it could do other things too.
+
+Original version by Hanno Rein, modified by Steven Rieder
+"""
+
 import requests
 import os.path
-import tweepy
 from mastodon import Mastodon
 
-with open("twitterkeys.txt") as f:
-    lines = f.readlines()
-    CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET = [l.strip() for l in lines]
+ADS_TOKEN_FILE = "/Users/rieder/.ads/token"
 
-with open("mastodonkeys.txt") as f:
+with open("mastodonkeys.txt", "r", encoding="utf-8") as f:
     lines = f.readlines()
-    MASTODON_ACCESS_TOKEN, = [l.strip() for l in lines]
+    MASTODON_ACCESS_TOKEN, = [line.strip() for line in lines]
 
 mastodon = Mastodon(
-        access_token = MASTODON_ACCESS_TOKEN,
-        api_base_url = "https://botsin.space/",
-        )
+    access_token=MASTODON_ACCESS_TOKEN,
+    api_base_url="https://botsin.space/",
+)
 
-
-auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
-auth.set_access_token(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
-api = tweepy.API(auth)
-
-with open("adskey.txt") as f:
+with open(ADS_TOKEN_FILE, "r", encoding="utf-8") as f:
     token = f.read().strip()
+
 headers = {"Authorization": "Bearer "+token}
-bibcodestocheck = ["2015MNRAS.446.1424R", "2012A&A...537A.128R", "2015MNRAS.452..376R", "2018MNRAS.473.3351R", "2019MNRAS.485.5490R", "2011MNRAS.415.3168R", "2011ascl.soft10016R", "2020MNRAS.491.2885T"]
+bibcodestocheck = [
+    # AMUSE articles
+    "2018araa.book.....P",
+    "2013CoPhC.183..456P",
+    "2013A&A...557A..84P",
+    "2009NewA...14..369P",
+    "2011ascl.soft07007P",
+]
 q = "citations(bibcode:"+(") or citations(bibcode:".join(bibcodestocheck))+")"
-params = {"q":q, "rows":"2000","fl":"bibcode,pub,title,author"}
+params = {"q": q, "rows": "2000", "fl": "bibcode,pub,title,author"}
 url = "https://api.adsabs.harvard.edu/v1/search/bigquery"
 r = requests.get(url, headers=headers, params=params)
 response = r.json()["response"]
@@ -34,14 +42,16 @@ response = r.json()["response"]
 oldcf = "oldcitations.txt"
 firstrun = not os.path.isfile(oldcf)
 if not firstrun:
-    with open(oldcf,"r") as f:
+    with open(oldcf, "r", encoding="utf-8") as f:
         oldc = f.readlines()
 else:
     oldc = []
-oldc = [l.strip() for l in oldc]
+oldc = [line.strip() for line in oldc]
 
-debug = False # "2020arXiv201006614G"
+debug = False
 
+i = 0
+i_max = 1
 for p in response["docs"]:
     bibcode = p["bibcode"]
     if bibcode not in oldc or bibcode == debug:
@@ -50,27 +60,30 @@ for p in response["docs"]:
             title = p["title"][0]
             authors = p["author"]
             authortxt = authors[0].split(",")[0]
-            if len(authors)==2:
+            if len(authors) == 2:
                 authortxt += " & "+authors[1].split(",")[0]
-            if len(authors)>2:
+            if len(authors) > 2:
                 authortxt += " et al."
-            maxlength = 280 - 25
-            text = "A new paper by "+authortxt+" has cited REBOUND:\n"+title
-            text = text.replace("&amp;","&")
-            if len(text)>maxlength:
-                text = text[:maxlength-2] + '..' 
-            url = "https://ui.adsabs.harvard.edu/abs/"+bibcode+"/abstract"
-            text += " "+ url
-            text += " #nbody #astrodon"
-            try:
-                api.update_status(text)
-            except:
-                print("Twitter error!")
+            maxlength = 400 - 25
+            text = f"A new paper by {authortxt} has cited AMUSE:\n{title}"
+            text = text.replace("&amp;", "&")
+            if len(text) > maxlength:
+                text = text[:maxlength-2] + '..'
+            url = f"https://ui.adsabs.harvard.edu/abs/{bibcode}/abstract"
+            text += " " + url
+            text += " #amusecode #astrodon"
+            # try:
+            #     api.update_status(text)
+            # except:
+            #     print("Twitter error!")
             mastodon.status_post(text)
             if bibcode not in oldc:
-                with open(oldcf,"a") as f:
-                    print(bibcode,file=f)
-                break
-
-
-
+                with open("summary.txt", "a", encoding="utf-8") as f:
+                    print("####", file=f)
+                    print(text, file=f)
+                with open(oldcf, "a", encoding="utf-8") as f:
+                    print(bibcode, file=f)
+                i += 1
+                if i >= i_max:
+                    # only post a maximum of i_max articles per run
+                    break
