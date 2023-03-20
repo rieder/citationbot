@@ -65,7 +65,10 @@ for p in response["docs"]:
             if len(authors) > 2:
                 authortxt += " et al."
             maxlength = 400 - 25
-            text = f"A new paper by {authortxt} has cited AMUSE:\n{title}"
+            text = (
+                f"A new publication by {authortxt} has cited AMUSE:\n"
+                f"{title}"
+            )
             text = text.replace("&amp;", "&")
             if len(text) > maxlength:
                 text = text[:maxlength-2] + '..'
